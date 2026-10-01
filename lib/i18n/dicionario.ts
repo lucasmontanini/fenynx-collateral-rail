@@ -125,7 +125,9 @@ const pt = {
   monitor: {
     titulo: 'Monitoramento de garantias',
     subtitulo: 'Cada operação em um cartão, da mais arriscada para a mais saudável.',
-    precos: 'Preços',
+    precos: 'Preços dos ativos em garantia',
+    avaliacao: 'Por avaliação',
+    em30: 'em 30 dias',
     ultimos30: 'últimos 30 dias',
     referencia: 'Valor de referência do token',
     simular: 'Simular queda de preço',
@@ -616,7 +618,9 @@ const en: Dicionario = {
   monitor: {
     titulo: 'Collateral monitoring',
     subtitulo: 'Each operation on a card, from the riskiest to the healthiest.',
-    precos: 'Prices',
+    precos: 'Collateral asset prices',
+    avaliacao: 'Appraised',
+    em30: 'in 30 days',
     ultimos30: 'last 30 days',
     referencia: 'Token reference value',
     simular: 'Simulate a price drop',
