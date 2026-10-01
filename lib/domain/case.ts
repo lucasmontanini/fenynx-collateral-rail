@@ -1,7 +1,8 @@
 import type { PoliticaLTV } from './credito'
 
-export type Ativo = 'XRP' | 'BTC' | 'MPT'
-export type Produto = 'credito' | 'iphone'
+/** CESTA e a operacao garantida por mais de um ativo ao mesmo tempo. */
+export type Ativo = 'XRP' | 'BTC' | 'MPT' | 'CESTA'
+export type Produto = 'credito' | 'iphone' | 'leasing'
 
 export interface ModeloIphone {
   id: string
@@ -52,6 +53,8 @@ export const CASE_FENYNX = {
   opcoesLtvEntrada: [0.25, 0.35, 0.5],
   prazoRecomposicaoHoras: 72,
   credito: { taxaMensal: 0.014, tac: 0.02, meses: 12, valorPadrao: 10000 },
+  /** Leasing de caminhao. Taxa e TAC ainda nao informadas: ficam em zero ate a Eos Loan passar as condicoes. */
+  leasing: { taxaMensal: 0, tac: 0, meses: 11.2 },
   iphone: {
     taxaMensal: 0.0179,
     tac: 0.05,
@@ -63,4 +66,71 @@ export const CASE_FENYNX = {
   },
 } as const
 
-export const CASAS_ATIVO: Record<Ativo, number> = { XRP: 2, BTC: 6, MPT: 0 }
+export const CASAS_ATIVO: Record<Ativo, number> = { XRP: 2, BTC: 6, MPT: 0, CESTA: 0 }
+
+export type ClasseToken = 'veiculo' | 'recebivel' | 'imovel'
+
+export interface TokenRwa {
+  /** Ate 6 caracteres, letras maiusculas e digitos, como pede a XLS 89. */
+  ticker: string
+  nome: string
+  descricao: string
+  classe: ClasseToken
+  /** Subclasse da XLS 89. */
+  subclasse: 'other' | 'private_credit' | 'real_estate'
+  emissor: string
+  /** Unidades emitidas. O caminhao e um bem unico: uma unidade. O recebivel tem uma unidade por real. */
+  quantidade: number
+  valorUnitario: number
+  imagem: string
+  info: Record<string, string | number>
+}
+
+/**
+ * Case Brummel: leasing de caminhao com cesta de tres garantias.
+ * Informado pelo Lucas em 01/10/2026: credora Eos Loan, transportadora Brummel, operacao de
+ * R$ 90.000, garantias caminhao, recebivel do leasing e R$ 9.000 em XRP (10%).
+ * As 48 parcelas semanais vem da reuniao de 30/09/2026.
+ * PREMISSAS A CONFIRMAR, por falta de dado: valor do caminhao igual ao credito, recebivel igual ao
+ * principal em 48 parcelas sem juros, haircut zero em todas as garantias, modelo e placa do
+ * caminhao nao informados.
+ */
+export const CASE_BRUMMEL = {
+  credora: 'Eos Loan',
+  tomadora: 'Transportadora Brummel',
+  principal: 90000,
+  parcelas: 48,
+  intervaloDias: 7,
+  xrpBRL: 9000,
+  haircut: { XRP: 0, veiculo: 0, recebivel: 0 },
+  caminhao: {
+    ticker: 'BRMC01',
+    nome: 'Caminhão Brummel 01',
+    descricao: 'Caminhão objeto do leasing, dado em garantia à Eos Loan.',
+    classe: 'veiculo',
+    subclasse: 'other',
+    emissor: 'Transportadora Brummel',
+    quantidade: 1,
+    valorUnitario: 90000,
+    imagem: '/ativos/caminhao.svg',
+    info: { tipo: 'veiculo', bem: 'caminhao', credora: 'Eos Loan', valor_brl: 90000, modelo: 'a informar', placa: 'a informar' },
+  },
+  recebivel: {
+    ticker: 'BRMR01',
+    nome: 'Recebível do leasing Brummel 01',
+    descricao: 'Parcelas semanais do leasing do caminhão, cedidas em garantia à Eos Loan.',
+    classe: 'recebivel',
+    subclasse: 'private_credit',
+    emissor: 'Transportadora Brummel',
+    quantidade: 90000,
+    valorUnitario: 1,
+    imagem: '/ativos/recebivel.svg',
+    info: { tipo: 'recebivel', origem: 'leasing de caminhao', credora: 'Eos Loan', parcelas: 48, periodicidade: 'semanal', parcela_brl: 1875 },
+  },
+} as const satisfies {
+  caminhao: TokenRwa
+  recebivel: TokenRwa
+  [chave: string]: unknown
+}
+
+export const TOKENS_BRUMMEL: TokenRwa[] = [CASE_BRUMMEL.caminhao, CASE_BRUMMEL.recebivel]

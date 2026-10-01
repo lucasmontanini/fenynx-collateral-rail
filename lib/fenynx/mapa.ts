@@ -45,6 +45,10 @@ export function operacaoDaApi(e: EmprestimoFenynx, preco: number | null): Operac
     liberavel: ativa ? Math.max(0, e.garantiaQtd - exigida) : 0,
     status: e.status,
     origem: 'api',
+    itens: null,
+    credora: null,
+    tomadora: null,
+    parcelas: null,
     cliente: e.cliente,
     fenynx: { id: e.id, ltv: e.ltv, saldoDevedor: e.saldoDevedor },
   }

@@ -53,8 +53,9 @@ async function lerOperacao(ctx: Contexto, conta: string): Promise<{ op: Operacao
   const precos = await carregarPrecos(ctx.client, ctx.c.FENYNX.address)
   const lida = await carregarOperacao(ctx, conta, precos)
   if (!lida) throw new ErroNegocio('semOperacao')
-  if (!lida.operacao.precoAtual) throw new ErroNegocio('semPreco')
-  return { op: lida.operacao, preco: lida.operacao.precoAtual }
+  const preco = lida.operacao.precoAtual ?? (lida.operacao.itens ? 1 : null)
+  if (!preco) throw new ErroNegocio('semPreco')
+  return { op: lida.operacao, preco }
 }
 
 // ------------------------------------------------------------------ sessao
@@ -98,7 +99,7 @@ export async function inicializarAmbiente(_: Resultado, __: FormData): Promise<R
 /** Publica precos de teste no oraculo. Campo vazio usa o preco de mercado do momento. */
 export async function simularPrecos(_: Resultado, dados: FormData): Promise<Resultado> {
   return executar(async ({ ledger }) => {
-    const ler = async (ativo: Exclude<Ativo, 'MPT'>): Promise<number> => {
+    const ler = async (ativo: 'XRP' | 'BTC'): Promise<number> => {
       if (String(dados.get(ativo) ?? '') !== '') return valorPositivo(dados, ativo)
       const mercado = await cotacaoDeMercado(ativo)
       if (!mercado) throw new ErroNegocio('semPreco')
@@ -145,6 +146,12 @@ export async function registrarPagamento(_: Resultado, dados: FormData): Promise
     const valor = quitar ? centavos(op.saldoDevedor + 0.005) : valorPositivo(dados, 'valor')
     if (valor > op.saldoDevedor + 0.01) throw new ErroNegocio('acimaDoSaldo')
     await ctx.ledger.registrar(op.conta, { t: 'pagamento', valor } satisfies Registro)
+    // Na cesta, a parcela paga da baixa no recebivel: os tokens voltam ao emissor.
+    const recebivel = op.itens?.find((i) => i.classe === 'recebivel')
+    if (recebivel?.emissaoId) {
+      const baixa = Math.min(recebivel.quantidade, Math.floor(valor / (recebivel.precoUnitario ?? 1)))
+      if (baixa > 0) await ctx.ledger.moverToken(op.conta, 'TOKENIZADORA', recebivel.emissaoId, baixa)
+    }
     if (valor >= op.saldoDevedor - 0.01) await devolverGarantia(ctx, op, op.garantiaQtd)
   })
 }
@@ -152,9 +159,11 @@ export async function registrarPagamento(_: Resultado, dados: FormData): Promise
 export async function reforcarGarantia(_: Resultado, dados: FormData): Promise<Resultado> {
   return executar(async (ctx) => {
     const { op } = await lerOperacao(ctx, texto(dados, 'conta'))
-    const quantidade = paraBaixo(valorPositivo(dados, 'quantidade'), CASAS_ATIVO[op.ativo])
+    // Na cesta o reforco entra em XRP.
+    const alvo = op.ativo === 'CESTA' ? { ...op, ativo: 'XRP' as const } : op
+    const quantidade = paraBaixo(valorPositivo(dados, 'quantidade'), CASAS_ATIVO[alvo.ativo])
     if (quantidade <= 0) throw new ErroNegocio('valor')
-    await entrarGarantia(ctx, op, quantidade)
+    await entrarGarantia(ctx, alvo, quantidade)
   })
 }
 
@@ -175,6 +184,7 @@ export async function liberarExcedente(_: Resultado, dados: FormData): Promise<R
 export async function liquidarGarantia(_: Resultado, dados: FormData): Promise<Resultado> {
   return executar(async (ctx) => {
     const { op, preco } = await lerOperacao(ctx, texto(dados, 'conta'))
+    if (op.ativo === 'CESTA') throw new ErroNegocio('cestaManual')
     if (op.nivel !== 'realizacao') throw new ErroNegocio('ltvLiquidacao')
     const quantidade = Math.min(op.garantiaQtd, paraCima(op.saldoDevedor / preco, CASAS_ATIVO[op.ativo]))
     const valor = centavos(Math.min(op.saldoDevedor + 0.005, quantidade * preco))
@@ -187,8 +197,14 @@ export async function liquidarGarantia(_: Resultado, dados: FormData): Promise<R
 export async function reavaliarGarantia(_: Resultado, dados: FormData): Promise<Resultado> {
   return executar(async (ctx) => {
     const { op } = await lerOperacao(ctx, texto(dados, 'conta'))
-    if (op.ativo !== 'MPT') throw new ErroNegocio('valor')
     const valorUnitario = valorPositivo(dados, 'valorUnitario')
+    if (op.ativo === 'CESTA') {
+      const ticker = texto(dados, 'ticker')
+      if (!op.itens?.some((i) => i.chave === ticker && i.ativo === 'MPT')) throw new ErroNegocio('valor')
+      await ctx.ledger.registrar(op.conta, { t: 'avaliacao', valorUnitario, ticker } satisfies Registro)
+      return
+    }
+    if (op.ativo !== 'MPT') throw new ErroNegocio('valor')
     await ctx.ledger.registrar(op.conta, { t: 'avaliacao', valorUnitario } satisfies Registro)
   })
 }

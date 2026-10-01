@@ -1,5 +1,32 @@
-import { CASE_FENYNX, type Ativo, type Produto } from './case'
+import { CASE_FENYNX, type Ativo, type ClasseToken, type Produto } from './case'
 import { calcularLTV, nivelCobertura, type NivelCobertura } from './credito'
+
+/** Item de uma cesta de garantias, como fica gravado na abertura. h e o haircut, entre 0 e 1. */
+export type ItemCestaRegistro =
+  | { k: 'XRP'; h: number }
+  | { k: 'MPT'; ticker: string; emissaoId: string; valorUnitario: number; classe: ClasseToken; h: number }
+
+/** Uma garantia dentro da cesta, com o valor de hoje. */
+export interface ItemGarantia {
+  chave: string
+  ativo: 'XRP' | 'MPT'
+  classe: 'cripto' | ClasseToken
+  simbolo: string
+  emissaoId: string | null
+  quantidade: number
+  precoUnitario: number | null
+  valorBruto: number
+  haircut: number
+  /** Valor depois do haircut. E o que entra no LTV. */
+  valorElegivel: number
+}
+
+/** Saldos reais da conta da operacao, lidos do ledger, para montar a cesta. */
+export interface SaldosCesta {
+  xrp: number
+  tokens: Record<string, number>
+  precoXRP: number | null
+}
 
 /** Registros gravados como memo na conta da operacao. O credito em si acontece fora do ledger. */
 export type Registro =
@@ -15,11 +42,16 @@ export type Registro =
       modelo?: string
       /** Garantia em token MPT: ticker, emissao no ledger e valor de referencia na abertura. */
       token?: { ticker: string; emissaoId: string; valorUnitario: number }
+      /** Operacao com mais de uma garantia. */
+      cesta?: ItemCestaRegistro[]
+      credora?: string
+      tomadora?: string
+      parcelas?: { quantidade: number; intervaloDias: number }
     }
   | { t: 'garantia'; quantidade: number }
   | { t: 'pagamento'; valor: number }
   | { t: 'liquidacao'; quantidade: number; preco: number; valor: number }
-  | { t: 'avaliacao'; valorUnitario: number }
+  | { t: 'avaliacao'; valorUnitario: number; ticker?: string }
 
 /** Registro com o horario da transacao que o gravou, em ISO. */
 export type RegistroDatado = Registro & { em: string }
@@ -57,6 +89,11 @@ export interface Operacao {
   status: StatusOperacao
   /** ledger: conta no trilho. api: emprestimo que so existe na API da Fenynx. */
   origem: 'ledger' | 'api'
+  /** Garantias da cesta. Nulo em operacao de garantia unica. */
+  itens: ItemGarantia[] | null
+  credora: string | null
+  tomadora: string | null
+  parcelas: { quantidade: number; intervaloDias: number } | null
   /** Codigo do cliente, vindo da API da Fenynx. Nunca o nome. */
   cliente: string | null
   /** O que a Fenynx informa para o mesmo emprestimo, para conferencia. */
@@ -79,6 +116,46 @@ export function garantiaNecessaria(financiado: number, preco: number, ltvEntrada
   return financiado / (preco * ltvEntrada)
 }
 
+/** Valor de cada garantia da cesta: XRP a preco de mercado, tokens pela ultima avaliacao. */
+export function montarCesta(
+  cesta: ItemCestaRegistro[],
+  saldos: SaldosCesta,
+  avaliacoes: Map<string, number>,
+): ItemGarantia[] {
+  return cesta.map((item) => {
+    if (item.k === 'XRP') {
+      const valorBruto = saldos.precoXRP === null ? 0 : saldos.xrp * saldos.precoXRP
+      return {
+        chave: 'XRP',
+        ativo: 'XRP',
+        classe: 'cripto',
+        simbolo: 'XRP',
+        emissaoId: null,
+        quantidade: saldos.xrp,
+        precoUnitario: saldos.precoXRP,
+        valorBruto,
+        haircut: item.h,
+        valorElegivel: valorBruto * (1 - item.h),
+      }
+    }
+    const quantidade = saldos.tokens[item.emissaoId] ?? 0
+    const precoUnitario = avaliacoes.get(item.ticker) ?? item.valorUnitario
+    const valorBruto = quantidade * precoUnitario
+    return {
+      chave: item.ticker,
+      ativo: 'MPT',
+      classe: item.classe,
+      simbolo: item.ticker,
+      emissaoId: item.emissaoId,
+      quantidade,
+      precoUnitario,
+      valorBruto,
+      haircut: item.h,
+      valorElegivel: valorBruto * (1 - item.h),
+    }
+  })
+}
+
 /**
  * Estado da operacao a partir dos registros e do saldo de garantia.
  * garantiaLedger e o saldo real da conta no ledger, em XRP ou em tokens MPT.
@@ -91,6 +168,7 @@ export function montarOperacao(
   garantiaLedger: number,
   precoMercado: number | null,
   agora: number,
+  saldosCesta?: SaldosCesta,
 ): Operacao | null {
   const abertura = registros.find((r) => r.t === 'abertura')
   if (!abertura || abertura.t !== 'abertura') return null
@@ -106,9 +184,13 @@ export function montarOperacao(
   let garantiaBTC = 0
   let liquidou = false
   let avaliacao = abertura.token?.valorUnitario ?? null
+  const avaliacoes = new Map<string, number>()
   for (const r of registros) {
-    if (r.t === 'avaliacao') avaliacao = r.valorUnitario
+    if (r.t !== 'avaliacao') continue
+    if (r.ticker) avaliacoes.set(r.ticker, r.valorUnitario)
+    else avaliacao = r.valorUnitario
   }
+  const itens = abertura.cesta && saldosCesta ? montarCesta(abertura.cesta, saldosCesta, avaliacoes) : null
   const preco = abertura.ativo === 'MPT' ? avaliacao : precoMercado
   for (const r of registros) {
     if (r.t === 'garantia') garantiaBTC += r.quantidade
@@ -125,15 +207,27 @@ export function montarOperacao(
     }
   }
   const saldoDevedor = encerrada ? 0 : juros(saldo, cursor, agora)
-  const garantiaQtd = abertura.ativo === 'BTC' ? Math.max(0, garantiaBTC) : garantiaLedger
+  const elegivelCesta = itens ? itens.reduce((soma, i) => soma + i.valorElegivel, 0) : 0
+  const garantiaQtd = itens
+    ? itens.filter((i) => i.quantidade > 0).length
+    : abertura.ativo === 'BTC'
+      ? Math.max(0, garantiaBTC)
+      : garantiaLedger
 
   let status: StatusOperacao = 'ativa'
   if (encerrada) status = liquidou ? 'liquidada' : 'quitada'
   else if (garantiaQtd === 0 && !liquidou) status = 'aguardando'
 
   const monitorada = status === 'ativa' && preco !== null
-  const ltv = monitorada ? calcularLTV(saldoDevedor, garantiaQtd, preco) : null
-  const precoMargem = garantiaQtd > 0 ? saldoDevedor / (garantiaQtd * CASE_FENYNX.ltv.recomposicao) : null
+  const ltv = itens
+    ? status === 'ativa' && elegivelCesta > 0
+      ? saldoDevedor / elegivelCesta
+      : null
+    : monitorada
+      ? calcularLTV(saldoDevedor, garantiaQtd, preco)
+      : null
+  // Na cesta nao existe um unico preco de gatilho: a folga e a queda do valor total ate a margem.
+  const precoMargem = !itens && garantiaQtd > 0 ? saldoDevedor / (garantiaQtd * CASE_FENYNX.ltv.recomposicao) : null
   const exigida = preco ? saldoDevedor / (preco * CASE_FENYNX.ltv.entrada) : garantiaQtd
   return {
     conta,
@@ -153,16 +247,26 @@ export function montarOperacao(
     pago,
     saldoDevedor,
     garantiaQtd,
-    garantiaBRL: preco === null ? null : garantiaQtd * preco,
-    precoAtual: preco,
-    folgaMargem: precoMargem !== null && preco ? Math.max(0, 1 - precoMargem / preco) : null,
+    garantiaBRL: itens ? elegivelCesta : preco === null ? null : garantiaQtd * preco,
+    precoAtual: itens ? null : preco,
+    folgaMargem: itens
+      ? ltv !== null
+        ? Math.max(0, 1 - ltv / CASE_FENYNX.ltv.recomposicao)
+        : null
+      : precoMargem !== null && preco
+        ? Math.max(0, 1 - precoMargem / preco)
+        : null,
     ltv,
     nivel: ltv === null ? null : nivelCobertura(ltv, CASE_FENYNX.ltv),
     precoMargem,
-    precoLiquidacao: garantiaQtd > 0 ? saldoDevedor / (garantiaQtd * CASE_FENYNX.ltv.realizacao) : null,
-    liberavel: status === 'ativa' ? Math.max(0, garantiaQtd - exigida) : 0,
+    precoLiquidacao: !itens && garantiaQtd > 0 ? saldoDevedor / (garantiaQtd * CASE_FENYNX.ltv.realizacao) : null,
+    liberavel: !itens && status === 'ativa' ? Math.max(0, garantiaQtd - exigida) : 0,
     status,
     origem: 'ledger',
+    itens,
+    credora: abertura.credora ?? null,
+    tomadora: abertura.tomadora ?? null,
+    parcelas: abertura.parcelas ?? null,
     cliente: null,
     fenynx: null,
   }

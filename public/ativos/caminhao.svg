@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 360" role="img" aria-label="Ilustração de caminhão">
+  <rect width="640" height="360" fill="#EEE9FD"/>
+  <path d="M0 286h640" stroke="#D6D6DE" stroke-width="4"/>
+  <g fill="none" stroke="#3A1E7A" stroke-width="8" stroke-linejoin="round" stroke-linecap="round">
+    <rect x="84" y="112" width="300" height="150" rx="10" fill="#FFFFFF"/>
+    <path d="M384 152h82l58 62v48H384z" fill="#FFFFFF"/>
+    <path d="M410 176h44l34 38h-78z" fill="#EEE9FD"/>
+    <path d="M84 262h440"/>
+    <path d="M132 150h204M132 186h204M132 222h120" stroke="#B9A6F5"/>
+  </g>
+  <g fill="#FFFFFF" stroke="#3A1E7A" stroke-width="8">
+    <circle cx="164" cy="270" r="30"/>
+    <circle cx="300" cy="270" r="30"/>
+    <circle cx="462" cy="270" r="30"/>
+  </g>
+  <g fill="#5C2EEA">
+    <circle cx="164" cy="270" r="10"/>
+    <circle cx="300" cy="270" r="10"/>
+    <circle cx="462" cy="270" r="10"/>
+  </g>
+</svg>

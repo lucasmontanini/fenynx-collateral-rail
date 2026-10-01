@@ -26,7 +26,7 @@ function campo(objeto: unknown, chave: string): unknown {
 }
 
 /** Preco de mercado em real, media de duas fontes independentes. */
-export async function cotacaoDeMercado(ativo: Exclude<Ativo, 'MPT'>): Promise<Cotacao | null> {
+export async function cotacaoDeMercado(ativo: 'XRP' | 'BTC'): Promise<Cotacao | null> {
   const [coinbase, mercadoBitcoin] = await Promise.all([
     buscar(`https://api.coinbase.com/v2/prices/${ativo}-BRL/spot`, (c) => campo(campo(c, 'data'), 'amount')),
     buscar(`https://www.mercadobitcoin.net/api/${ativo}/ticker/`, (c) => campo(campo(c, 'ticker'), 'last')),
@@ -44,7 +44,7 @@ export interface PontoPreco {
 }
 
 /** Fechamento diario dos ultimos 30 dias em real, pelo Mercado Bitcoin. */
-export async function historicoDePreco(ativo: Exclude<Ativo, 'MPT'>): Promise<PontoPreco[]> {
+export async function historicoDePreco(ativo: 'XRP' | 'BTC'): Promise<PontoPreco[]> {
   try {
     const ate = Math.floor(Date.now() / 1000)
     const resposta = await fetch(

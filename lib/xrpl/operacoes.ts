@@ -1,6 +1,16 @@
-import { CASAS_ATIVO, CASE_FENYNX, TOKEN_TERRE02, type Ativo, type Produto } from '../domain/case'
+import type { MPTokenMetadata } from 'xrpl'
+import {
+  CASAS_ATIVO,
+  CASE_BRUMMEL,
+  CASE_FENYNX,
+  TOKEN_TERRE02,
+  type Ativo,
+  type Produto,
+  type TokenRwa,
+} from '../domain/case'
 import { financiar, garantiaNecessaria, type Operacao, type Registro } from '../domain/operacao'
 import { ErroNegocio } from '../erros'
+import { URL_PORTAL } from './config'
 import { RESERVA_OPERACAO_XRP, carregarPrecos } from './leitura'
 import type { Contexto } from './servidor'
 
@@ -13,7 +23,7 @@ export interface PedidoOperacao {
   modeloId?: string
 }
 
-type Garantia = Pick<Operacao, 'conta' | 'ativo' | 'emissaoId'>
+type Garantia = Pick<Operacao, 'conta' | 'ativo' | 'emissaoId'> & { itens?: Operacao['itens'] }
 
 export function paraCima(valor: number, casas: number): number {
   const fator = 10 ** casas
@@ -64,6 +74,17 @@ export async function sairGarantia(
 
 /** Devolve ao cliente toda a garantia que resta. restanteBTC informa o saldo atestado em Bitcoin. */
 export async function devolverGarantia(ctx: Contexto, op: Garantia, restanteBTC: number): Promise<void> {
+  if (op.ativo === 'CESTA') {
+    for (const item of op.itens ?? []) {
+      if (item.ativo !== 'MPT' || !item.emissaoId) continue
+      const tokens = await ctx.ledger.saldoMPT(op.conta, item.emissaoId)
+      if (tokens > 0) await ctx.ledger.moverToken(op.conta, 'TOMADOR', item.emissaoId, tokens)
+    }
+    const garantia = await ctx.ledger.estadoGarantia(op.conta)
+    const xrp = garantia.saldoXRP - RESERVA_OPERACAO_XRP
+    if (xrp > 0.000001) await ctx.ledger.moverGarantiaXRP(op.conta, ctx.c.TOMADOR.address, xrp.toFixed(6))
+    return
+  }
   if (op.ativo === 'XRP') {
     const garantia = await ctx.ledger.estadoGarantia(op.conta)
     const xrp = garantia.saldoXRP - RESERVA_OPERACAO_XRP
@@ -78,6 +99,7 @@ export async function devolverGarantia(ctx: Contexto, op: Garantia, restanteBTC:
 
 /** Abre a conta, registra o credito e trava a garantia exigida pelo LTV de entrada. Devolve a conta. */
 export async function abrirOperacao(ctx: Contexto, pedido: PedidoOperacao): Promise<string> {
+  if (pedido.ativo === 'CESTA') throw new ErroNegocio('valor')
   if (!CASE_FENYNX.opcoesLtvEntrada.some((o) => o === pedido.ltvEntrada)) throw new ErroNegocio('valor')
   const modelo = CASE_FENYNX.iphone.modelos.find((m) => m.id === pedido.modeloId)
   if (pedido.produto === 'iphone' && !modelo) throw new ErroNegocio('valor')
@@ -96,7 +118,8 @@ export async function abrirOperacao(ctx: Contexto, pedido: PedidoOperacao): Prom
     }
     preco = token.valorUnitario
   } else {
-    preco = (await carregarPrecos(ctx.client, ctx.c.FENYNX.address))[pedido.ativo]?.valor
+    const precos = await carregarPrecos(ctx.client, ctx.c.FENYNX.address)
+    preco = precos[pedido.ativo === 'BTC' ? 'BTC' : 'XRP']?.valor
   }
   if (!preco) throw new ErroNegocio('semPreco')
 
@@ -117,5 +140,92 @@ export async function abrirOperacao(ctx: Contexto, pedido: PedidoOperacao): Prom
     ...(token ? { token } : {}),
   } satisfies Registro)
   await entrarGarantia(ctx, { conta, ativo: pedido.ativo, emissaoId: token?.emissaoId ?? null }, quantidade)
+  return conta
+}
+
+/** Metadados do token no padrao XLS 89: nome, classe, imagem, links e dados do ativo. */
+export function metadadosDoToken(token: TokenRwa): MPTokenMetadata {
+  return {
+    ticker: token.ticker,
+    name: token.nome,
+    desc: token.descricao,
+    icon: `${URL_PORTAL}${token.imagem}`,
+    asset_class: 'rwa',
+    asset_subclass: token.subclasse,
+    issuer_name: token.emissor,
+    uris: [
+      { uri: `${URL_PORTAL}${token.imagem}`, category: 'docs', title: 'Imagem do ativo' },
+      { uri: `${URL_PORTAL}/tokens/${token.ticker}`, category: 'website', title: 'Dossie no portal' },
+    ],
+    additional_info: token.info,
+  }
+}
+
+/**
+ * Case Brummel: abre a operacao de leasing com a cesta de tres garantias.
+ * Emite os dois tokens RWA, trava caminhao, recebivel e XRP na mesma conta e registra o credito.
+ */
+export async function abrirCestaBrummel(ctx: Contexto): Promise<string> {
+  const { ledger } = ctx
+  const caso = CASE_BRUMMEL
+  const precoXRP = (await carregarPrecos(ctx.client, ctx.c.FENYNX.address)).XRP?.valor
+  if (!precoXRP) throw new ErroNegocio('semPreco')
+  await ledger.garantirXRP('TOKENIZADORA', 10)
+  await ledger.garantirXRP('FENYNX', 10)
+
+  const emissoes: Record<string, string> = {}
+  for (const token of [caso.caminhao, caso.recebivel]) {
+    emissoes[token.ticker] = await ledger.emissaoDoToken(token.ticker, {
+      metadados: metadadosDoToken(token),
+      maximo: String(token.quantidade),
+    })
+  }
+  const emissaoDe = (ticker: string): string => {
+    const id = emissoes[ticker]
+    if (!id) throw new Error(`Emissao de ${ticker} nao encontrada`)
+    return id
+  }
+
+  const { conta } = await ledger.abrirContaGarantia()
+  await ledger.registrar(conta, {
+    t: 'abertura',
+    produto: 'leasing',
+    ativo: 'CESTA',
+    principal: caso.principal,
+    tac: 0,
+    taxaMensal: CASE_FENYNX.leasing.taxaMensal,
+    meses: CASE_FENYNX.leasing.meses,
+    ltvEntrada: CASE_FENYNX.ltv.entrada,
+    credora: caso.credora,
+    tomadora: caso.tomadora,
+    parcelas: { quantidade: caso.parcelas, intervaloDias: caso.intervaloDias },
+    cesta: [
+      {
+        k: 'MPT',
+        ticker: caso.caminhao.ticker,
+        emissaoId: emissaoDe(caso.caminhao.ticker),
+        valorUnitario: caso.caminhao.valorUnitario,
+        classe: 'veiculo',
+        h: caso.haircut.veiculo,
+      },
+      {
+        k: 'MPT',
+        ticker: caso.recebivel.ticker,
+        emissaoId: emissaoDe(caso.recebivel.ticker),
+        valorUnitario: caso.recebivel.valorUnitario,
+        classe: 'recebivel',
+        h: caso.haircut.recebivel,
+      },
+      { k: 'XRP', h: caso.haircut.XRP },
+    ],
+  } satisfies Registro)
+
+  for (const token of [caso.caminhao, caso.recebivel]) {
+    await ledger.entregarToken(emissaoDe(token.ticker), token.quantidade)
+    await ledger.travarToken(conta, emissaoDe(token.ticker), token.quantidade)
+  }
+  const xrp = paraCima(caso.xrpBRL / precoXRP, 2)
+  await ledger.garantirXRP('TOMADOR', xrp + 10)
+  await ledger.travarColateralXRP(conta, xrp.toFixed(6))
   return conta
 }

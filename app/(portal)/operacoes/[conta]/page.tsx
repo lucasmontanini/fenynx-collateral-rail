@@ -3,6 +3,8 @@ import Link from 'next/link'
 import { liberarExcedente, liquidarGarantia, reavaliarGarantia, reforcarGarantia, registrarPagamento } from '@/app/acoes'
 import { BadgeNivel } from '@/components/BadgeNivel'
 import { BadgeStatus } from '@/components/BadgeStatus'
+import { CestaGarantias } from '@/components/CestaGarantias'
+import { RotulosAtivo } from '@/components/RotulosAtivo'
 import { DestaqueLastro } from '@/components/DestaqueLastro'
 import { IconeAtivo } from '@/components/IconeAtivo'
 import { FormAcao } from '@/components/FormAcao'
@@ -51,7 +53,14 @@ export default async function PaginaOperacao({ params }: { params: Promise<{ con
   const op = operacoes.find((o) => o.conta === conta) ?? lida
   const lastro = op.ativo === 'MPT' ? await carregarLastroVigente() : null
   const preco = op.precoAtual
-  const custodia = { XRP: t.operacao.custodiaXRP, BTC: t.operacao.custodiaBTC, MPT: t.operacao.custodiaMPT }[op.ativo]
+  const custodia = {
+    XRP: t.operacao.custodiaXRP,
+    BTC: t.operacao.custodiaBTC,
+    MPT: t.operacao.custodiaMPT,
+    CESTA: t.operacao.custodiaCESTA,
+  }[op.ativo]
+  const tokensDaCesta = op.itens?.filter((i) => i.ativo === 'MPT') ?? []
+  const parcelaPadrao = op.parcelas ? Math.round((op.principal / op.parcelas.quantidade) * 100) / 100 : null
   const ocultos = { conta }
   const tomMedidor = op.nivel === 'entrada' ? 'sucesso' : op.nivel === 'alerta' ? 'alerta' : 'perigo'
   const marcadores = (['entrada', 'alerta', 'recomposicao', 'realizacao'] as const).map((n) => ({
@@ -82,10 +91,20 @@ export default async function PaginaOperacao({ params }: { params: Promise<{ con
       <div className="grid grid-cols-4 gap-5">
         <KpiCard
           rotulo={t.operacao.garantia}
-          valor={op.ativo === 'MPT' ? numero(op.garantiaQtd, idioma, 0) : quantidade(op.garantiaQtd, op.ativo, idioma)}
-          apoio={[op.ativo === 'MPT' ? op.simbolo : null, op.garantiaBRL !== null ? brl(op.garantiaBRL, idioma) : null]
-            .filter(Boolean)
-            .join(' · ')}
+          valor={
+            op.itens
+              ? brl(op.garantiaBRL ?? 0, idioma)
+              : op.ativo === 'MPT'
+                ? numero(op.garantiaQtd, idioma, 0)
+                : quantidade(op.garantiaQtd, op.ativo, idioma)
+          }
+          apoio={
+            op.itens
+              ? `${op.itens.length} ${t.cesta.garantias}`
+              : [op.ativo === 'MPT' ? op.simbolo : null, op.garantiaBRL !== null ? brl(op.garantiaBRL, idioma) : null]
+                  .filter(Boolean)
+                  .join(' · ')
+          }
           icone={Lock}
         />
         <KpiCard
@@ -103,10 +122,21 @@ export default async function PaginaOperacao({ params }: { params: Promise<{ con
         <KpiCard
           rotulo={t.operacao.vencimento}
           valor={dataHora(op.vencimento, idioma).split(',')[0] ?? ''}
-          apoio={`${op.meses} ${t.nova.meses}`}
+          apoio={op.parcelas ? `${op.parcelas.quantidade} ${t.cesta.parcelas}` : `${op.meses} ${t.nova.meses}`}
           icone={CalendarClock}
         />
       </div>
+
+      {op.itens ? (
+        <Card className="mt-5">
+          <CardTitulo
+            titulo={t.cesta.titulo}
+            ajuda={t.cesta.ajuda}
+            acao={<RotulosAtivo ativo="CESTA" t={t.rotulos} />}
+          />
+          <CestaGarantias itens={op.itens} t={t} idioma={idioma} />
+        </Card>
+      ) : null}
 
       <div className="mt-5 grid grid-cols-[minmax(0,7fr)_minmax(0,5fr)] gap-5">
         <div className="flex flex-col gap-5">
@@ -118,7 +148,7 @@ export default async function PaginaOperacao({ params }: { params: Promise<{ con
                 acao={<BadgeNivel nivel={op.nivel} t={t.nivel} />}
               />
               <Medidor valor={op.ltv} tom={tomMedidor} marcadores={marcadores} rotulo={t.operacao.ltv} />
-              <div className="mt-4 grid grid-cols-3 gap-4">
+              <div className={op.itens ? 'hidden' : 'mt-4 grid grid-cols-3 gap-4'}>
                 <div>
                   <div className="text-[13px] text-tinta-sub">{t.operacao.precoAtual}</div>
                   <div className="tabular text-[17px] font-semibold">{preco ? brl(preco, idioma) : ''}</div>
@@ -147,7 +177,7 @@ export default async function PaginaOperacao({ params }: { params: Promise<{ con
             <CardTitulo titulo={t.operacao.acoes} />
             {op.status === 'ativa' || op.status === 'aguardando' ? (
               <div className="flex flex-col gap-4">
-                {op.nivel === 'realizacao' ? (
+                {op.nivel === 'realizacao' && !op.itens ? (
                   <Passo titulo={t.operacao.liquidarTitulo} ajuda={t.operacao.liquidarAjuda}>
                     <FormAcao acao={liquidarGarantia} rotulo={t.operacao.liquidar} t={t.form} variante="perigo" ocultos={ocultos} />
                   </Passo>
@@ -159,14 +189,38 @@ export default async function PaginaOperacao({ params }: { params: Promise<{ con
                     </FormAcao>
                   </Passo>
                 ) : null}
+                {tokensDaCesta.length > 0 ? (
+                  <Passo titulo={t.cesta.reavaliar} ajuda={t.cesta.reavaliarAjuda}>
+                    <FormAcao acao={reavaliarGarantia} rotulo={t.operacao.reavaliar} t={t.form} variante="secundaria" ocultos={ocultos}>
+                      <div className="grid grid-cols-2 gap-3">
+                        <Campo rotulo={t.cesta.qualItem} nome="ticker" valorInicial={tokensDaCesta[0]?.chave}>
+                          {tokensDaCesta.map((i) => (
+                            <option key={i.chave} value={i.chave}>
+                              {i.simbolo}
+                            </option>
+                          ))}
+                        </Campo>
+                        <Campo rotulo={t.cesta.valorUnitario} nome="valorUnitario" tipo="number" />
+                      </div>
+                    </FormAcao>
+                  </Passo>
+                ) : null}
                 <Passo titulo={t.operacao.reforcarTitulo} ajuda={t.operacao.reforcarAjuda}>
                   <FormAcao acao={reforcarGarantia} rotulo={t.operacao.reforcar} t={t.form} variante="secundaria" ocultos={ocultos}>
-                    <Campo rotulo={`${t.operacao.quantidade} ${op.simbolo}`} nome="quantidade" tipo="number" />
+                    <Campo rotulo={`${t.operacao.quantidade} ${op.itens ? 'XRP' : op.simbolo}`} nome="quantidade" tipo="number" />
                   </FormAcao>
                 </Passo>
-                <Passo titulo={t.operacao.pagarTitulo} ajuda={t.operacao.pagarAjuda}>
+                <Passo
+                  titulo={op.itens ? t.cesta.parcelaTitulo : t.operacao.pagarTitulo}
+                  ajuda={op.itens ? t.cesta.parcelaAjuda : t.operacao.pagarAjuda}
+                >
                   <FormAcao acao={registrarPagamento} rotulo={t.operacao.pagar} t={t.form} ocultos={ocultos}>
-                    <Campo rotulo={t.operacao.valor} nome="valor" tipo="number" />
+                    <Campo
+                      rotulo={t.operacao.valor}
+                      nome="valor"
+                      tipo="number"
+                      valorInicial={parcelaPadrao !== null ? String(parcelaPadrao) : undefined}
+                    />
                   </FormAcao>
                   <div className="mt-3">
                     <FormAcao
@@ -178,6 +232,7 @@ export default async function PaginaOperacao({ params }: { params: Promise<{ con
                     />
                   </div>
                 </Passo>
+                {op.itens ? null : (
                 <Passo
                   titulo={t.operacao.liberarTitulo}
                   ajuda={`${t.operacao.liberarAjuda} ${t.operacao.liberavel}: ${quantidade(op.liberavel, op.ativo, idioma, op.simbolo)}.`}
@@ -191,7 +246,8 @@ export default async function PaginaOperacao({ params }: { params: Promise<{ con
                     desabilitado={op.liberavel <= 0}
                   />
                 </Passo>
-                {op.nivel !== 'realizacao' ? (
+                )}
+                {op.nivel !== 'realizacao' && !op.itens ? (
                   <Passo titulo={t.operacao.liquidarTitulo} ajuda={t.operacao.liquidarBloqueado}>
                     <FormAcao acao={liquidarGarantia} rotulo={t.operacao.liquidar} t={t.form} variante="perigo" ocultos={ocultos} desabilitado />
                   </Passo>
@@ -204,6 +260,25 @@ export default async function PaginaOperacao({ params }: { params: Promise<{ con
         </div>
 
         <div className="flex flex-col gap-5">
+          {op.credora || op.tomadora ? (
+            <Card>
+              <CardTitulo titulo={t.cesta.partes} />
+              <div className={linha}>
+                <span className="text-tinta-sub">{t.cesta.credora}</span>
+                <span className="font-medium">{op.credora}</span>
+              </div>
+              <div className={linha}>
+                <span className="text-tinta-sub">{t.cesta.tomadora}</span>
+                <span className="font-medium">{op.tomadora}</span>
+              </div>
+              <div className="mt-4 text-[14px] font-semibold">{t.cesta.premissas}</div>
+              <ul className="mt-2 flex list-disc flex-col gap-1 pl-5 text-[14px] leading-snug text-tinta-sub">
+                {[t.cesta.p1, t.cesta.p2, t.cesta.p3, t.cesta.p4].map((p) => (
+                  <li key={p}>{p}</li>
+                ))}
+              </ul>
+            </Card>
+          ) : null}
           <Card>
             <CardTitulo titulo={t.operacao.contrato} />
             <div className={linha}>

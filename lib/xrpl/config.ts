@@ -17,6 +17,8 @@ export type Papel = (typeof PAPEIS)[number]
 export const ARQUIVO_ENV = resolve(process.cwd(), '.env.local')
 export const WSS_PADRAO = 'wss://s.devnet.rippletest.net:51233'
 export const EXPLORER = 'https://devnet.xrpl.org'
+/** Endereco publico do portal, usado nos links gravados nos metadados dos tokens. */
+export const URL_PORTAL = 'https://fenynx-collateral-rail.vercel.app'
 
 /** Stablecoin de real usada no vault. Na Devnet e um token de teste que faz o papel do BBRL. */
 export const MOEDA_BRL = 'BRL'

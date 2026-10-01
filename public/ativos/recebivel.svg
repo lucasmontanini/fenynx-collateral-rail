@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 360" role="img" aria-label="Ilustração de recebível">
+  <rect width="640" height="360" fill="#EEE9FD"/>
+  <g fill="none" stroke="#3A1E7A" stroke-width="8" stroke-linejoin="round" stroke-linecap="round">
+    <rect x="196" y="56" width="248" height="248" rx="14" fill="#FFFFFF"/>
+    <path d="M236 112h168M236 152h168M236 192h96" stroke="#B9A6F5"/>
+    <path d="M236 248l36 30 68-74" stroke="#5C2EEA"/>
+  </g>
+  <g fill="#5C2EEA">
+    <rect x="372" y="232" width="14" height="40" rx="4"/>
+    <rect x="394" y="214" width="14" height="58" rx="4"/>
+  </g>
+</svg>

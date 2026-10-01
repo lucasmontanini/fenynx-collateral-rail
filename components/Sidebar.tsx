@@ -24,6 +24,7 @@ export function Sidebar({ t }: { t: Dicionario['nav'] }) {
     { href: '/garantias/xrp', rotulo: 'XRP', ativo: 'XRP' },
     { href: '/garantias/btc', rotulo: 'Bitcoin', ativo: 'BTC' },
     { href: '/lastro', rotulo: 'TERRE02', ativo: 'MPT' },
+    { href: '/tokens', rotulo: t.tokens, ativo: 'CESTA' },
   ]
   const sistema: { href: string; rotulo: string; icone: LucideIcon }[] = [
     { href: '/rede', rotulo: t.rede, icone: Network },

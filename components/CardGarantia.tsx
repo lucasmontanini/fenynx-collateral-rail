@@ -61,20 +61,39 @@ export function CardGarantia({ op, t, idioma }: { op: Operacao; t: Dicionario; i
         <dl className="mb-5 mt-2 grid grid-cols-2 gap-x-4 gap-y-3">
           <div>
             <dt className={dado}>{t.monitor.garantia}</dt>
-            <dd className={valor}>{quantidade(op.garantiaQtd, op.ativo, idioma, op.simbolo)}</dd>
+            <dd className={valor}>
+              {op.itens ? `${op.itens.length} ${t.cesta.garantias}` : quantidade(op.garantiaQtd, op.ativo, idioma, op.simbolo)}
+            </dd>
             <dd className="tabular text-[13px] text-tinta-sub">{op.garantiaBRL !== null ? brl(op.garantiaBRL, idioma) : ''}</dd>
           </div>
           <div>
             <dt className={dado}>{t.monitor.divida}</dt>
             <dd className={valor}>{brl(op.saldoDevedor, idioma)}</dd>
           </div>
-          <div>
-            <dt className={dado}>{t.monitor.precoAtual}</dt>
-            <dd className={valor}>{op.precoAtual !== null ? brl(op.precoAtual, idioma) : ''}</dd>
-            <dd className="tabular text-[13px] text-tinta-sub">
-              {op.precoMargem !== null ? `${t.monitor.margemEm} ${brl(op.precoMargem, idioma)}` : ''}
-            </dd>
-          </div>
+          {op.itens ? (
+            <div className="col-span-2">
+              <dt className={dado}>{t.cesta.titulo}</dt>
+              <dd className="mt-1.5 flex flex-col gap-1.5">
+                {op.itens.map((i) => (
+                  <span key={i.chave} className="tabular flex items-center justify-between gap-3 text-[14px]">
+                    <span className="flex items-center gap-2 text-tinta-700">
+                      <IconeAtivo ativo={i.ativo} tamanho={22} classe={i.classe === 'cripto' ? 'imovel' : i.classe} />
+                      {i.simbolo}
+                    </span>
+                    <span className="font-medium text-tinta">{brl(i.valorElegivel, idioma)}</span>
+                  </span>
+                ))}
+              </dd>
+            </div>
+          ) : (
+            <div>
+              <dt className={dado}>{t.monitor.precoAtual}</dt>
+              <dd className={valor}>{op.precoAtual !== null ? brl(op.precoAtual, idioma) : ''}</dd>
+              <dd className="tabular text-[13px] text-tinta-sub">
+                {op.precoMargem !== null ? `${t.monitor.margemEm} ${brl(op.precoMargem, idioma)}` : ''}
+              </dd>
+            </div>
+          )}
           <div>
             <dt className={dado}>{t.monitor.folga}</dt>
             <dd className={valor}>

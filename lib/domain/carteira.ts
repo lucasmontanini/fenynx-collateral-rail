@@ -44,10 +44,16 @@ export function resumirCarteira(operacoes: Operacao[]): ResumoCarteira {
       porNivel[o.nivel].operacoes += 1
       porNivel[o.nivel].dividaBRL += o.saldoDevedor
     }
-    const a = ativos.get(o.simbolo) ?? { simbolo: o.simbolo, ativo: o.ativo, garantiaBRL: 0, operacoes: 0 }
-    a.garantiaBRL += o.garantiaBRL ?? 0
-    a.operacoes += 1
-    ativos.set(o.simbolo, a)
+    // Cesta: cada garantia entra no seu proprio ativo.
+    const partes = o.itens
+      ? o.itens.map((i) => ({ simbolo: i.simbolo, ativo: i.ativo as Ativo, valor: i.valorElegivel }))
+      : [{ simbolo: o.simbolo, ativo: o.ativo, valor: o.garantiaBRL ?? 0 }]
+    for (const parte of partes) {
+      const a = ativos.get(parte.simbolo) ?? { simbolo: parte.simbolo, ativo: parte.ativo, garantiaBRL: 0, operacoes: 0 }
+      a.garantiaBRL += parte.valor
+      a.operacoes += 1
+      ativos.set(parte.simbolo, a)
+    }
     const p = produtos.get(o.produto) ?? { produto: o.produto, dividaBRL: 0, operacoes: 0 }
     p.dividaBRL += o.saldoDevedor
     p.operacoes += 1
@@ -86,7 +92,10 @@ export function curvaDeEstresse(operacoes: Operacao[]): PontoEstresse[] {
     let emMargem = 0
     let emLiquidacao = 0
     for (const o of ativas) {
-      const valor = (o.garantiaBRL ?? 0) * (o.ativo === 'MPT' ? 1 : 1 - queda)
+      // Na cesta so a parte em XRP sofre o choque. Tokens sem preco de mercado ficam fora.
+      const valor = o.itens
+        ? o.itens.reduce((soma, i) => soma + i.valorElegivel * (i.ativo === 'XRP' ? 1 - queda : 1), 0)
+        : (o.garantiaBRL ?? 0) * (o.ativo === 'MPT' ? 1 : 1 - queda)
       garantia += valor
       divida += o.saldoDevedor
       const nivel = nivelCobertura(o.saldoDevedor / valor, CASE_FENYNX.ltv)

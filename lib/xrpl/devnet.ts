@@ -10,7 +10,9 @@ import {
   dropsToXrp,
   signLoanSetByCounterparty,
   xrpToDrops,
+  encodeMPTokenMetadata,
   type IssuedCurrencyAmount,
+  type MPTokenMetadata,
   type LoanSet,
   type SubmittableTransaction,
 } from 'xrpl'
@@ -42,6 +44,18 @@ export const ORACULO_ID = 1
 
 function hex(texto: string): string {
   return Buffer.from(texto, 'utf8').toString('hex').toUpperCase()
+}
+
+/** Ticker gravado nos metadados XLS 89 de uma emissao, ou nulo se nao for JSON. */
+export function tickerDosMetadados(metadadosHex: string): string | null {
+  try {
+    const dados: unknown = JSON.parse(Buffer.from(metadadosHex, 'hex').toString('utf8'))
+    if (dados === null || typeof dados !== 'object') return null
+    const { t, ticker } = dados as { t?: unknown; ticker?: unknown }
+    return typeof t === 'string' ? t : typeof ticker === 'string' ? ticker : null
+  } catch {
+    return null
+  }
 }
 
 export const TIPO_MEMO = 'fenynx/v1'
@@ -503,8 +517,11 @@ export class DevnetAdapter implements LedgerAdapter {
 
   // -------------------------------------------------------- token MPT como garantia
 
-  /** Emissao do token no ledger. Reaproveita a que ja existe para o ticker ou cria uma nova. */
-  async emissaoDoToken(ticker: string): Promise<string> {
+  /**
+   * Emissao do token no ledger. Reaproveita a que ja existe para o ticker ou cria uma nova.
+   * Com metadados, grava o JSON no padrao XLS 89 (nome, classe, imagem, links e dados do ativo).
+   */
+  async emissaoDoToken(ticker: string, opcoes: { metadados?: MPTokenMetadata; maximo?: string } = {}): Promise<string> {
     const resposta = await this.client.request({
       command: 'account_objects',
       account: this.c.TOKENIZADORA.address,
@@ -515,7 +532,8 @@ export class DevnetAdapter implements LedgerAdapter {
     for (const item of itens) {
       if (item === null || typeof item !== 'object') continue
       const campos = item as Record<string, unknown>
-      if (campos.MPTokenMetadata === hex(ticker) && typeof campos.mpt_issuance_id === 'string') {
+      if (typeof campos.mpt_issuance_id !== 'string' || typeof campos.MPTokenMetadata !== 'string') continue
+      if (campos.MPTokenMetadata === hex(ticker) || tickerDosMetadados(campos.MPTokenMetadata) === ticker) {
         return campos.mpt_issuance_id
       }
     }
@@ -523,7 +541,8 @@ export class DevnetAdapter implements LedgerAdapter {
       TransactionType: 'MPTokenIssuanceCreate',
       Account: this.c.TOKENIZADORA.address,
       AssetScale: 0,
-      MPTokenMetadata: hex(ticker),
+      MPTokenMetadata: opcoes.metadados ? encodeMPTokenMetadata(opcoes.metadados) : hex(ticker),
+      ...(opcoes.maximo ? { MaximumAmount: opcoes.maximo } : {}),
       Flags: { tfMPTCanTransfer: true, tfMPTCanEscrow: true, tfMPTCanLock: true },
     })
     const id = 'mpt_issuance_id' in criacao.meta ? criacao.meta.mpt_issuance_id : undefined
@@ -578,13 +597,14 @@ export class DevnetAdapter implements LedgerAdapter {
   /** Move tokens da conta da operacao com as duas assinaturas. Destino e o cliente ou a Fenynx. */
   async moverToken(
     conta: string,
-    destino: 'TOMADOR' | 'FENYNX',
+    destino: 'TOMADOR' | 'FENYNX' | 'TOKENIZADORA',
     emissaoId: string,
     quantidade: number,
     registro?: object,
   ): Promise<Recibo> {
     const carteira = this.c[destino]
-    if (!(await this.aceitaToken(carteira.address, emissaoId))) {
+    // Devolver o token ao emissor da baixa nele. O emissor nao precisa aceitar o proprio token.
+    if (destino !== 'TOKENIZADORA' && !(await this.aceitaToken(carteira.address, emissaoId))) {
       await enviar(this.client, carteira, {
         TransactionType: 'MPTokenAuthorize',
         Account: carteira.address,

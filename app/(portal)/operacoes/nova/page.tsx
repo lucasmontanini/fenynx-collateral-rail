@@ -17,7 +17,7 @@ export default async function NovaOperacao() {
       </Link>
       <SectionHeader titulo={t.nova.titulo} subtitulo={t.nova.subtitulo} />
       <FormNovaOperacao
-        precos={{ XRP: precos.XRP?.valor ?? null, BTC: precos.BTC?.valor ?? null, MPT: TOKEN_TERRE02.valorUnitario }}
+        precos={{ XRP: precos.XRP?.valor ?? null, BTC: precos.BTC?.valor ?? null, MPT: TOKEN_TERRE02.valorUnitario, CESTA: null }}
         t={t}
         idioma={idioma}
       />

@@ -5,6 +5,8 @@ Portal de monitoramento de garantia e LTV para crédito com XRP e Bitcoin, com a
 ## Escopo atual
 
 - Token MPT: travado na conta da operação. O valor vem de avaliação do lastro, não de mercado.
+- Cesta de garantias: uma operação pode ter várias garantias na mesma conta. O case Brummel (leasing de caminhão, `scripts/05-case-brummel.ts`) trava um token do caminhão, um token do recebível e XRP.
+- Tokens RWA com metadados no padrão XLS 89, lidos direto da emissão.
 - Sem vault e sem stablecoin. O crédito é concedido fora do ledger. O trilho cuida da garantia e do LTV.
 - XRP: travado de verdade em uma conta por operação, com assinatura dupla (Fenynx e agente de garantia).
 - Bitcoin: custódia fora da XRPL. O portal registra a quantidade atestada e monitora o LTV.

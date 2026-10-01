@@ -1,5 +1,11 @@
-import { dropsToXrp, type Client } from 'xrpl'
-import { montarOperacao, type Operacao, type Registro, type RegistroDatado } from '../domain/operacao'
+import { decodeMPTokenMetadata, dropsToXrp, type Client } from 'xrpl'
+import {
+  montarOperacao,
+  type Operacao,
+  type Registro,
+  type RegistroDatado,
+  type SaldosCesta,
+} from '../domain/operacao'
 import { integracaoConfigurada, listarEmprestimos } from '../fenynx/cliente'
 import type { EmprestimoFenynx } from '../fenynx/contrato'
 import { enriquecer, operacaoDaApi } from '../fenynx/mapa'
@@ -157,7 +163,9 @@ function eventoDe(
   if (registro?.t === 'liquidacao') {
     return { tipo: 'liquidacao', detalhe: `${registro.quantidade} ${ativo} · ${registro.valor.toFixed(2)} BRL` }
   }
-  if (registro?.t === 'avaliacao') return { tipo: 'avaliacao', detalhe: `${registro.valorUnitario.toFixed(2)} BRL` }
+  if (registro?.t === 'avaliacao') {
+    return { tipo: 'avaliacao', detalhe: `${registro.ticker ? `${registro.ticker} ` : ''}${registro.valorUnitario.toFixed(2)} BRL` }
+  }
   if (registro?.t === 'garantia') {
     return { tipo: registro.quantidade >= 0 ? 'atestado' : 'liberacao', detalhe: `${Math.abs(registro.quantidade)} BTC` }
   }
@@ -216,8 +224,22 @@ export async function carregarOperacao(
   const garantiaLedger = abertura.token
     ? await ledger.saldoMPT(conta, abertura.token.emissaoId)
     : Math.max(0, Math.round((saldoXRP - RESERVA_OPERACAO_XRP) * 100) / 100)
-  const precoMercado = abertura.ativo === 'MPT' ? null : (precos[abertura.ativo]?.valor ?? null)
-  const operacao = montarOperacao(conta, criadaEm, registros.reverse(), garantiaLedger, precoMercado, Date.now())
+  const precoMercado =
+    abertura.ativo === 'XRP' || abertura.ativo === 'BTC' ? (precos[abertura.ativo]?.valor ?? null) : null
+  // Cesta: saldo real de XRP e de cada token na conta da operacao.
+  let saldosCesta: SaldosCesta | undefined
+  if (abertura.cesta) {
+    const tokens: Record<string, number> = {}
+    for (const item of abertura.cesta) {
+      if (item.k === 'MPT') tokens[item.emissaoId] = await ledger.saldoMPT(conta, item.emissaoId)
+    }
+    saldosCesta = {
+      xrp: Math.max(0, Math.round((saldoXRP - RESERVA_OPERACAO_XRP) * 100) / 100),
+      tokens,
+      precoXRP: precos.XRP?.valor ?? null,
+    }
+  }
+  const operacao = montarOperacao(conta, criadaEm, registros.reverse(), garantiaLedger, precoMercado, Date.now(), saldosCesta)
   return operacao ? { operacao, eventos } : null
 }
 
@@ -382,4 +404,49 @@ export async function carregarAtestados({ client, c }: Contexto, ticker: string)
     }
   }
   return atestados
+}
+
+export interface EmissaoLedger {
+  emissaoId: string
+  ticker: string | null
+  emitido: number
+  maximo: number | null
+  /** Metadados XLS 89 como gravados na emissao, com as chaves por extenso. */
+  metadados: Record<string, unknown> | null
+}
+
+/** Emissoes de MPT da tokenizadora, lidas do ledger com os metadados. */
+export async function carregarEmissoes({ client, c }: Contexto): Promise<EmissaoLedger[]> {
+  let resposta
+  try {
+    resposta = await client.request({
+      command: 'account_objects',
+      account: c.TOKENIZADORA.address,
+      ledger_index: 'validated',
+      limit: 400,
+    })
+  } catch (erro) {
+    if (codigoErro(erro) === 'actNotFound') return []
+    throw erro
+  }
+  const itens: unknown[] = resposta.result.account_objects
+  return itens.map(campos).flatMap((o) => {
+    if (o.LedgerEntryType !== 'MPTokenIssuance' || typeof o.mpt_issuance_id !== 'string') return []
+    const hex = texto(o.MPTokenMetadata)
+    let metadados: Record<string, unknown> | null = null
+    try {
+      metadados = hex ? campos(decodeMPTokenMetadata(hex)) : null
+    } catch {
+      metadados = null
+    }
+    return [
+      {
+        emissaoId: o.mpt_issuance_id,
+        ticker: metadados && typeof metadados.ticker === 'string' ? metadados.ticker : deHex(hex) || null,
+        emitido: num(o.OutstandingAmount),
+        maximo: o.MaximumAmount === undefined ? null : num(o.MaximumAmount),
+        metadados,
+      },
+    ]
+  })
 }

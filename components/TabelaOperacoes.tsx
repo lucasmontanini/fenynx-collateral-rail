@@ -47,7 +47,9 @@ export function TabelaOperacoes({
             </td>
             <td className="text-[15px] text-tinta-700">{o.modelo ?? t.produto[o.produto]}</td>
             <td className="text-right">
-              <div className="tabular text-[15px] text-tinta">{quantidade(o.garantiaQtd, o.ativo, idioma, o.simbolo)}</div>
+              <div className="tabular text-[15px] text-tinta">
+                {o.itens ? `${o.itens.length} ${t.cesta.garantias}` : quantidade(o.garantiaQtd, o.ativo, idioma, o.simbolo)}
+              </div>
               <div className="tabular text-[13px] text-tinta-sub">
                 {o.garantiaBRL !== null ? brl(o.garantiaBRL, idioma) : ''}
               </div>

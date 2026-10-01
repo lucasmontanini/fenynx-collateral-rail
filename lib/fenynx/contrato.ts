@@ -12,7 +12,7 @@ import type { StatusOperacao } from '../domain/operacao'
 export interface EmprestimoApi {
   id: string
   produto: Produto
-  ativo: Exclude<Ativo, 'MPT'>
+  ativo: 'XRP' | 'BTC'
   modelo?: string
   garantia_quantidade: number
   principal_brl: number
@@ -40,7 +40,7 @@ export interface TomadorApi {
 export interface EmprestimoFenynx {
   id: string
   produto: Produto
-  ativo: Exclude<Ativo, 'MPT'>
+  ativo: 'XRP' | 'BTC'
   modelo: string | null
   garantiaQtd: number
   principal: number
