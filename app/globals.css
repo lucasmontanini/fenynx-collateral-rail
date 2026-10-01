@@ -1,0 +1,45 @@
+@import "tailwindcss";
+
+/* Tokens do Fenynx Design System v2.0. Nao criar cor fora desta lista. */
+@theme {
+  --color-marca: #5c2eea;
+  --color-marca-escuro: #3a1e7a;
+  --color-marca-suave: #eee9fd;
+  --color-pagina: #fafafb;
+  --color-superficie: #ffffff;
+  --color-superficie-2: #f4f4f6;
+  --color-borda: #e9e9ee;
+  --color-borda-forte: #d6d6de;
+  --color-tinta: #16161c;
+  --color-tinta-700: #3d3d47;
+  --color-tinta-sub: #6f6f7b;
+  --color-tinta-suave: #9a9aa6;
+  --color-sucesso: #15803d;
+  --color-sucesso-suave: #e8f5ec;
+  --color-alerta: #b45309;
+  --color-alerta-suave: #fdf1e3;
+  --color-perigo: #b91c1c;
+  --color-perigo-suave: #fbe9e9;
+  --color-info: #1d4ed8;
+  --color-info-suave: #e8eefc;
+  --font-sans: var(--font-work-sans), system-ui, sans-serif;
+  --radius-cartao: 20px;
+  --shadow-cartao: 0 1px 2px rgba(22, 22, 28, 0.05);
+}
+
+body {
+  background: var(--color-pagina);
+  color: var(--color-tinta);
+  font-family: var(--font-sans);
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-marca);
+  outline-offset: 2px;
+}
